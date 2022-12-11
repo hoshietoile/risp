@@ -1,3 +1,4 @@
+use super::error::RispError;
 use super::token::Token;
 
 #[derive(Debug)]
@@ -9,10 +10,10 @@ pub struct Lexer {
     position: usize,
 }
 
-type TokenParseError = std::num::ParseFloatError;
+// type RispError = std::num::ParseFloatError;
 
 impl Lexer {
-    pub fn new(input: String) -> Self {
+    pub fn new(input: String) -> Result<Self, RispError> {
         let length = input.len() - 1;
         let mut lexer = Self {
             ch: '\0',
@@ -21,14 +22,16 @@ impl Lexer {
             read_position: 0,
             position: 0,
         };
-        lexer.read();
         lexer
+            .read()
+            .map_err(|_| RispError::LexerInitialize("Lexer initialization Failed".into()))?;
+        Ok(lexer)
     }
 
-    pub fn next_token(&mut self) -> Result<Token, TokenParseError> {
+    pub fn next_token(&mut self) -> Result<Token, RispError> {
         // Skip if char is whitespace
         while self.ch.is_whitespace() {
-            self.read();
+            self.read()?;
         }
         let token = match self.ch {
             '(' => Token::LPAREN,
@@ -49,13 +52,13 @@ impl Lexer {
             '\0' => Token::EOF,
             _ => Token::ILLEGAL(self.ch.to_string()),
         };
-        self.read();
+        self.read()?;
         Ok(token)
     }
 
-    fn read_as_literal(&mut self) -> Option<Token> {
+    fn read_as_literal(&mut self) -> Result<Token, RispError> {
         if self.ch == 't' && self.peek()? == '\0' {
-            return Some(Token::TRUE);
+            return Ok(Token::TRUE);
         }
         let mut s = String::from("");
         loop {
@@ -66,37 +69,33 @@ impl Lexer {
             }
         }
         if s.to_uppercase() == "NIL" {
-            return Some(Token::NIL);
+            return Ok(Token::NIL);
         }
-        Some(Token::LITERAL(s.to_uppercase()))
+        Ok(Token::LITERAL(s.to_uppercase()))
     }
 
-    fn read_as_string(&mut self) -> Option<Token> {
+    fn read_as_string(&mut self) -> Result<Token, RispError> {
         let mut s = String::new();
         loop {
-            self.read();
+            self.read()?;
             s.push(self.ch);
             if self.peek()? == '"' {
-                self.read();
+                self.read()?;
                 break;
             }
         }
-        Some(Token::STRING(s))
+        Ok(Token::STRING(s))
     }
 
-    fn read_as_number(&mut self) -> Result<Token, TokenParseError> {
+    fn read_as_number(&mut self) -> Result<Token, RispError> {
         let mut chars = Vec::<char>::new();
         loop {
             chars.push(self.ch);
-            if let Some(char) = self.peek() {
-                match char {
-                    '0'..='9' | '.' => {
-                        self.read();
-                    }
-                    _ => break,
+            match self.peek()? {
+                '0'..='9' | '.' => {
+                    self.read()?;
                 }
-            } else {
-                break;
+                _ => break,
             }
         }
         let s = chars.iter().collect::<String>();
@@ -106,22 +105,34 @@ impl Lexer {
 
     // increment self.read_position by 1.
     // in case self.read_position gt self.length, finish iteration.
-    fn read(&mut self) -> Option<()> {
+    fn read(&mut self) -> Result<(), RispError> {
         self.ch = if self.read_position > self.length {
             '\0'
         } else {
-            self.input.chars().nth(self.read_position)?
+            self.input
+                .chars()
+                .nth(self.read_position)
+                .ok_or(RispError::Read(format!(
+                    "Read failed at position: {}",
+                    self.read_position
+                )))?
         };
         self.position = self.read_position;
         self.read_position += 1;
-        Some(())
+        Ok(())
     }
 
-    fn peek(&mut self) -> Option<char> {
+    fn peek(&mut self) -> Result<char, RispError> {
         if self.read_position > self.length {
-            Some('\0')
+            Ok('\0')
         } else {
-            self.input.chars().nth(self.read_position)
+            self.input
+                .chars()
+                .nth(self.read_position)
+                .ok_or(RispError::Peek(format!(
+                    "Peek failed at position: {}",
+                    self.read_position
+                )))
         }
     }
 }
@@ -133,17 +144,17 @@ mod tests {
 
     #[test]
     fn read_test() {
-        let mut lexer = Lexer::new("This is test Text".into());
+        let mut lexer = Lexer::new("This is test Text".into()).unwrap();
         assert_eq!(lexer.ch, 'T');
         assert_eq!(lexer.length, 16);
         assert_eq!(lexer.position, 0);
         assert_eq!(lexer.read_position, 1);
-        lexer.read();
+        lexer.read().unwrap();
         assert_eq!(lexer.ch, 'h');
         assert_eq!(lexer.position, 1);
         assert_eq!(lexer.read_position, 2);
-        lexer.read();
-        lexer.read();
+        lexer.read().unwrap();
+        lexer.read().unwrap();
         assert_eq!(lexer.ch, 's');
         assert_eq!(lexer.position, 3);
         assert_eq!(lexer.read_position, 4);
@@ -152,7 +163,7 @@ mod tests {
     #[test]
     fn peek_test() {
         let input = String::from("peek_test");
-        let mut lexer = Lexer::new(input.clone());
+        let mut lexer = Lexer::new(input.clone()).unwrap();
         let mut chars = input.chars();
         chars.next();
         while lexer.ch != '\0' {
@@ -160,13 +171,13 @@ mod tests {
                 let char = lexer.peek().unwrap();
                 assert_eq!(char, ch);
             }
-            lexer.read();
+            lexer.read().unwrap();
         }
     }
 
     #[test]
     fn read_invalid_token() {
-        let mut lexer = Lexer::new(String::from("^"));
+        let mut lexer = Lexer::new(String::from("^")).unwrap();
         assert_eq!(
             lexer.next_token().unwrap(),
             Token::ILLEGAL(String::from("^"))
@@ -175,7 +186,7 @@ mod tests {
 
     #[test]
     fn read_string() {
-        let mut lexer = Lexer::new(String::from(r#""hello""#));
+        let mut lexer = Lexer::new(String::from(r#""hello""#)).unwrap();
         assert_eq!(
             lexer.next_token().unwrap(),
             Token::STRING(String::from("hello"))
@@ -184,7 +195,7 @@ mod tests {
 
     #[test]
     fn read_literal() {
-        let mut lexer = Lexer::new(String::from("(setq a 2)"));
+        let mut lexer = Lexer::new(String::from("(setq a 2)")).unwrap();
         assert_eq!(lexer.next_token().unwrap(), Token::LPAREN);
         assert_eq!(
             lexer.next_token().unwrap(),
@@ -200,7 +211,7 @@ mod tests {
 
     #[test]
     fn read_var() {
-        let mut lexer = Lexer::new(String::from("(+ a 2 a)"));
+        let mut lexer = Lexer::new(String::from("(+ a 2 a)")).unwrap();
         assert_eq!(lexer.next_token().unwrap(), Token::LPAREN);
         assert_eq!(lexer.next_token().unwrap(), Token::PLUS);
         assert_eq!(
@@ -223,14 +234,14 @@ mod tests {
             ("2.345", Token::NUMBER(2.345)),
         ];
         for test in tests {
-            let mut lexer = Lexer::new(test.0.to_string());
+            let mut lexer = Lexer::new(test.0.to_string()).unwrap();
             assert_eq!(lexer.next_token().unwrap(), test.1);
         }
     }
 
     #[test]
     fn basic_arithemetic() {
-        let mut lexer = Lexer::new(String::from("(+ 1 2)"));
+        let mut lexer = Lexer::new(String::from("(+ 1 2)")).unwrap();
         assert_eq!(lexer.next_token().unwrap(), Token::LPAREN);
         assert_eq!(lexer.next_token().unwrap(), Token::PLUS);
         assert_eq!(lexer.next_token().unwrap(), Token::NUMBER(1.0));
@@ -241,7 +252,7 @@ mod tests {
 
     #[test]
     fn nested_arithmetic() {
-        let mut lexer = Lexer::new(String::from("(+ (- 30 2) (* (/ 4 2) 3))"));
+        let mut lexer = Lexer::new(String::from("(+ (- 30 2) (* (/ 4 2) 3))")).unwrap();
         let wants = vec![
             Token::LPAREN,
             Token::PLUS,
