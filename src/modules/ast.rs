@@ -1,10 +1,11 @@
+use super::error::RispError;
 use std::fmt;
 use std::rc::Rc;
 
-#[derive(Debug)]
-pub enum ExprErr {
-    Cause(String),
-}
+// #[derive(Debug)]
+// pub enum ExprErr {
+//     Cause(String),
+// }
 
 #[derive(Clone)]
 pub struct Lambda {
@@ -20,7 +21,7 @@ pub enum Expr {
     List(Vec<Expr>),
     True,
     Nil,
-    Func(fn(&[Expr]) -> Result<Expr, ExprErr>),
+    Func(fn(&[Expr]) -> Result<Expr, RispError>),
     Lambda(Lambda),
 }
 
