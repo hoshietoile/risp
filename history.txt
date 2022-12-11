@@ -1,0 +1,11 @@
+#V2
+(+ 1 2)
+(* 10 (+ 2 40)
+(* 10 (+ 2 40))
+ruts
+rust
+(defun test(num) (* num 20))
+defun
+test
+(test)
+(test 10)

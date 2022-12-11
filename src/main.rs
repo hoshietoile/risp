@@ -1,29 +1,79 @@
 mod modules;
 
-use modules::lexer;
-use modules::parser;
+use std::fs::File;
+use std::io::BufRead;
+use std::{env, io};
 
-// TODO: need to implement eval with real struct.
-fn eval() -> () {}
+use rustyline::error::ReadlineError;
+use rustyline::{Editor, Result as RustyResult};
 
-fn main() {
-    println!("Hello, world!");
-    let tests = vec![
-        "(+ -10 5)",
-        "(+ (* 1 2) 3)",
-        "(+ (/ 2 (- 10 (* 1 1))))",
-        "1",
-        "hello",
-        "(+ 1 2 (* 1 3))",
-        "t",
-        "nil",
-    ];
-    for test in tests {
-        let lexer = lexer::Lexer::new(String::from(test)).unwrap();
-        let mut parser = parser::Parser::new(lexer);
-        let expr = parser.parse().unwrap();
-        println!("{}", expr.to_string());
+use modules::{ast, error, eval, lexer, parser, token};
+
+fn eval(
+    evaluator: &mut eval::Evaluator,
+    env: &mut eval::ExprEnv,
+    line: &String,
+) -> Result<String, error::RispError> {
+    let lexer = lexer::Lexer::new(line.clone())?;
+    let mut parser = parser::Parser::new(lexer);
+    let expr = parser.parse()?;
+    let result = evaluator.eval(&expr, env)?;
+    Ok(result.to_string())
+}
+
+fn main() -> RustyResult<()> {
+    let mut evaluator = eval::Evaluator::new();
+    let mut env: eval::ExprEnv = eval::default_env();
+
+    if atty::is(atty::Stream::Stdin) {
+        let args = env::args().collect::<Vec<String>>();
+        if args.len() == 1 {
+            let mut rl = Editor::<()>::new()?;
+            _ = rl.load_history("history.txt");
+            loop {
+                let readline = rl.readline("risp>> ");
+                match readline {
+                    Ok(line) => {
+                        rl.add_history_entry(line.as_str());
+                        if let Some(result) = eval(&mut evaluator, &mut env, &line).ok() {
+                            println!("{}", result);
+                        } else {
+                            continue;
+                        }
+                    }
+                    Err(ReadlineError::Interrupted) => {
+                        break;
+                    }
+                    Err(ReadlineError::Eof) => {
+                        break;
+                    }
+                    Err(err) => {
+                        println!("Error: {:?}", err);
+                        break;
+                    }
+                }
+            }
+            return rl.save_history("history.txt");
+        } else {
+            let arg = args.get(1);
+            if let Some(filename) = arg {
+                let file = File::open(filename)?;
+                for line in io::BufReader::new(file).lines() {
+                    let result = eval(&mut evaluator, &mut env, &line?)
+                        .map_err(|_| ReadlineError::Interrupted)?;
+                    println!("{}", result);
+                }
+            }
+        }
+    } else {
+        let stdin = io::stdin();
+        for line in stdin.lines() {
+            let result =
+                eval(&mut evaluator, &mut env, &line?).map_err(|_| ReadlineError::Interrupted)?;
+            println!("{}", result);
+        }
     }
+    Ok(())
 }
 
 #[cfg(test)]
